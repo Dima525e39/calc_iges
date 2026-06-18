@@ -1,0 +1,20 @@
+{
+  "currency": "RUB",
+  "prices": [
+    {
+      "thickness_mm": 1.0,
+      "cut_price_per_meter": 60.0,
+      "pierce_price": 5.0
+    },
+    {
+      "thickness_mm": 2.0,
+      "cut_price_per_meter": 80.0,
+      "pierce_price": 7.0
+    },
+    {
+      "thickness_mm": 3.0,
+      "cut_price_per_meter": 110.0,
+      "pierce_price": 10.0
+    }
+  ]
+}
