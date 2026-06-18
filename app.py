@@ -17,6 +17,7 @@ from iges_calc import (
 
 
 APP_NAME = "IGES Cut Calculator"
+APP_TITLE = "Калькулятор реза IGES"
 APP_DIR = Path(__file__).resolve().parent
 
 
@@ -34,7 +35,7 @@ SETTINGS_PATH = settings_path()
 class CutCalculatorApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("IGES Cut Calculator")
+        self.title(APP_TITLE)
         self.geometry("1180x720")
         self.minsize(960, 600)
 
@@ -42,7 +43,7 @@ class CutCalculatorApp(tk.Tk):
         self.results: Dict[str, AnalysisResult] = {}
         self.selected_thickness = tk.StringVar()
         self.currency_var = tk.StringVar(value=self.currency)
-        self.status_var = tk.StringVar(value="Ready")
+        self.status_var = tk.StringVar(value="Готово")
 
         self._build_layout()
         self._refresh_price_controls()
@@ -55,10 +56,10 @@ class CutCalculatorApp(tk.Tk):
         toolbar.grid(row=0, column=0, sticky="ew")
         toolbar.columnconfigure(8, weight=1)
 
-        ttk.Button(toolbar, text="Open IGES", command=self.open_files).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(toolbar, text="Remove", command=self.remove_selected).grid(row=0, column=1, padx=(0, 16))
+        ttk.Button(toolbar, text="Открыть IGES", command=self.open_files).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(toolbar, text="Удалить", command=self.remove_selected).grid(row=0, column=1, padx=(0, 16))
 
-        ttk.Label(toolbar, text="Thickness").grid(row=0, column=2, sticky="w")
+        ttk.Label(toolbar, text="Толщина").grid(row=0, column=2, sticky="w")
         self.thickness_combo = ttk.Combobox(
             toolbar,
             textvariable=self.selected_thickness,
@@ -68,9 +69,9 @@ class CutCalculatorApp(tk.Tk):
         self.thickness_combo.grid(row=0, column=3, padx=(6, 16))
         self.thickness_combo.bind("<<ComboboxSelected>>", lambda _event: self.recalculate())
 
-        ttk.Label(toolbar, text="Currency").grid(row=0, column=4, sticky="w")
+        ttk.Label(toolbar, text="Валюта").grid(row=0, column=4, sticky="w")
         ttk.Entry(toolbar, textvariable=self.currency_var, width=10).grid(row=0, column=5, padx=(6, 16))
-        ttk.Button(toolbar, text="Save Settings", command=self.save_settings).grid(row=0, column=6)
+        ttk.Button(toolbar, text="Сохранить настройки", command=self.save_settings).grid(row=0, column=6)
 
         body = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         body.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 8))
@@ -94,14 +95,14 @@ class CutCalculatorApp(tk.Tk):
         )
         self.result_table = ttk.Treeview(left, columns=columns, show="headings", selectmode="extended")
         headings = {
-            "file": "File",
-            "mode": "Mode",
-            "unit": "Unit",
-            "length_m": "Cut length, m",
-            "pierces": "Pierces",
-            "thickness": "Thickness",
-            "price": "Price",
-            "warnings": "Warnings",
+            "file": "Файл",
+            "mode": "Режим",
+            "unit": "Ед.",
+            "length_m": "Периметр резки, м",
+            "pierces": "Врезки",
+            "thickness": "Толщина",
+            "price": "Стоимость",
+            "warnings": "Предупреждения",
         }
         widths = {
             "file": 230,
@@ -123,14 +124,14 @@ class CutCalculatorApp(tk.Tk):
         self.result_table.configure(yscrollcommand=result_scroll.set)
 
         right.columnconfigure(0, weight=1)
-        ttk.Label(right, text="Prices", font=("", 13, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(right, text="Цены", font=("", 13, "bold")).grid(row=0, column=0, sticky="w")
 
         price_columns = ("thickness", "cut_price", "pierce_price")
         self.price_table = ttk.Treeview(right, columns=price_columns, show="headings", height=9)
         for column, heading, width in (
-            ("thickness", "Thickness, mm", 110),
-            ("cut_price", "Per meter", 110),
-            ("pierce_price", "Per pierce", 110),
+            ("thickness", "Толщина, мм", 110),
+            ("cut_price", "За метр", 110),
+            ("pierce_price", "За врезку", 110),
         ):
             self.price_table.heading(column, text=heading)
             self.price_table.column(column, width=width, anchor=tk.W)
@@ -142,18 +143,18 @@ class CutCalculatorApp(tk.Tk):
         for column in range(2):
             form.columnconfigure(column, weight=1)
 
-        self.thickness_entry = self._entry_row(form, "Thickness, mm", 0)
-        self.cut_price_entry = self._entry_row(form, "Price per meter", 1)
-        self.pierce_price_entry = self._entry_row(form, "Price per pierce", 2)
+        self.thickness_entry = self._entry_row(form, "Толщина, мм", 0)
+        self.cut_price_entry = self._entry_row(form, "Цена за метр", 1)
+        self.pierce_price_entry = self._entry_row(form, "Цена за врезку", 2)
 
         price_buttons = ttk.Frame(right)
         price_buttons.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        ttk.Button(price_buttons, text="Add / Update", command=self.add_or_update_price).grid(
+        ttk.Button(price_buttons, text="Добавить / Обновить", command=self.add_or_update_price).grid(
             row=0, column=0, padx=(0, 8)
         )
-        ttk.Button(price_buttons, text="Delete", command=self.delete_price).grid(row=0, column=1)
+        ttk.Button(price_buttons, text="Удалить", command=self.delete_price).grid(row=0, column=1)
 
-        details = ttk.LabelFrame(right, text="Selected file")
+        details = ttk.LabelFrame(right, text="Выбранный файл")
         details.grid(row=4, column=0, sticky="nsew", pady=(18, 0))
         right.rowconfigure(4, weight=1)
         details.rowconfigure(0, weight=1)
@@ -173,8 +174,8 @@ class CutCalculatorApp(tk.Tk):
 
     def open_files(self) -> None:
         filenames = filedialog.askopenfilenames(
-            title="Open IGES files",
-            filetypes=(("IGES files", "*.igs *.iges"), ("All files", "*.*")),
+            title="Открыть IGES-файлы",
+            filetypes=(("IGES-файлы", "*.igs *.iges"), ("Все файлы", "*.*")),
         )
         if not filenames:
             return
@@ -184,13 +185,13 @@ class CutCalculatorApp(tk.Tk):
             try:
                 result = analyze_iges_file(filename)
             except Exception as exc:
-                messagebox.showerror("IGES error", f"{Path(filename).name}\n\n{exc}")
+                messagebox.showerror("Ошибка IGES", f"{Path(filename).name}\n\n{exc}")
                 continue
             self.results[str(Path(filename))] = result
             loaded += 1
 
         self.recalculate()
-        self.status_var.set(f"Loaded {loaded} file(s)")
+        self.status_var.set(f"Загружено файлов: {loaded}")
 
     def remove_selected(self) -> None:
         for item in self.result_table.selection():
@@ -205,7 +206,7 @@ class CutCalculatorApp(tk.Tk):
                 float(self.pierce_price_entry.get().replace(",", ".")),
             )
         except ValueError:
-            messagebox.showerror("Price error", "Enter numeric values for all price fields.")
+            messagebox.showerror("Ошибка цены", "Введите числовые значения во все поля цены.")
             return
 
         self.prices = [item for item in self.prices if item.thickness_mm != price.thickness_mm]
@@ -224,7 +225,7 @@ class CutCalculatorApp(tk.Tk):
     def save_settings(self) -> None:
         self.currency = self.currency_var.get().strip() or "RUB"
         save_price_book(SETTINGS_PATH, self.currency, self.prices)
-        self.status_var.set(f"Settings saved: {SETTINGS_PATH}")
+        self.status_var.set(f"Настройки сохранены: {SETTINGS_PATH}")
         self.recalculate()
 
     def recalculate(self) -> None:
@@ -239,14 +240,14 @@ class CutCalculatorApp(tk.Tk):
                 price_text = f"{selected_price.calculate(result):.2f} {self.currency_var.get().strip()}"
 
             warning_count = len(result.warnings)
-            warning_text = "" if warning_count == 0 else f"{warning_count} warning(s)"
+            warning_text = "" if warning_count == 0 else f"{warning_count} предупрежд."
             self.result_table.insert(
                 "",
                 tk.END,
                 iid=str(result.path),
                 values=(
                     result.path.name,
-                    result.backend,
+                    _backend_label(result.backend),
                     result.unit_name,
                     f"{result.cut_length_m:.3f}",
                     result.pierces,
@@ -300,17 +301,17 @@ class CutCalculatorApp(tk.Tk):
             return
 
         lines: List[str] = [
-            f"File: {result.path}",
-            f"Mode: {result.backend}",
-            f"Calculation: {result.calculation_mode}",
-            f"Unit: {result.unit_name}",
-            f"Cut length: {result.cut_length_m:.4f} m",
-            f"Pierces: {result.pierces}",
-            f"Cut elements used: {len(result.curves)}",
+            f"Файл: {result.path}",
+            f"Режим: {_backend_label(result.backend)}",
+            f"Расчет: {result.calculation_mode}",
+            f"Единицы: {result.unit_name}",
+            f"Периметр резки: {result.cut_length_m:.4f} м",
+            f"Врезки: {result.pierces}",
+            f"Контуров реза: {len(result.curves)}",
         ]
         if result.warnings:
             lines.append("")
-            lines.append("Warnings:")
+            lines.append("Предупреждения:")
             lines.extend(f"- {warning}" for warning in result.warnings)
         self.details_text.insert("1.0", "\n".join(lines))
         self.details_text.configure(state="disabled")
@@ -332,6 +333,14 @@ class CutCalculatorApp(tk.Tk):
     def _set_entry(entry: ttk.Entry, value: str) -> None:
         entry.delete(0, tk.END)
         entry.insert(0, value)
+
+
+def _backend_label(backend: str) -> str:
+    labels = {
+        "open-cascade": "Open Cascade",
+        "basic-iges": "Базовый IGES",
+    }
+    return labels.get(backend, backend)
 
 
 def main() -> None:

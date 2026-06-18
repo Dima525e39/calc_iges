@@ -47,7 +47,7 @@ class ThicknessPrice:
     pierce_price: float
 
     def label(self) -> str:
-        return f"{self.thickness_mm:g} mm"
+        return f"{self.thickness_mm:g} мм"
 
     def calculate(self, result: AnalysisResult) -> float:
         return (
@@ -108,14 +108,14 @@ def analyze_iges_file(path: str | Path, pierce_tolerance_mm: float = 0.1) -> Ana
         result = iges.analyze(pierce_tolerance_mm=pierce_tolerance_mm)
         result.warnings.insert(
             0,
-            "Open Cascade 3D reader is not installed; used basic IGES curve parser instead. "
-            f"3D solids and surfaces will not be reliable. Details: {exc}",
+            "3D-чтение через Open Cascade не установлено; использован базовый парсер IGES-кривых. "
+            f"3D-тела и поверхности могут быть посчитаны неверно. Детали: {exc}",
         )
         return result
     except Exception as exc:
         fallback_warning = (
-            "Open Cascade 3D reader failed; used basic IGES curve parser instead. "
-            f"Open Cascade error: {exc}"
+            "3D-чтение через Open Cascade завершилось ошибкой; использован базовый парсер IGES-кривых. "
+            f"Ошибка Open Cascade: {exc}"
         )
         iges = _IGESDocument.from_file(path)
         result = iges.analyze(pierce_tolerance_mm=pierce_tolerance_mm)
@@ -149,7 +149,7 @@ class _IGESDocument:
             if section in sections:
                 sections[section].append(line)
         if not sections["D"] or not sections["P"]:
-            raise ValueError("IGES file does not contain readable D/P sections.")
+            raise ValueError("IGES-файл не содержит читаемые секции D/P.")
         return cls(path, sections["G"], sections["D"], sections["P"])
 
     def analyze(self, pierce_tolerance_mm: float = 0.1) -> AnalysisResult:
@@ -182,9 +182,9 @@ class _IGESDocument:
 
         if unsupported:
             details = ", ".join(
-                f"type {entity_type}: {count}" for entity_type, count in sorted(unsupported.items())
+                f"тип {entity_type}: {count}" for entity_type, count in sorted(unsupported.items())
             )
-            warnings.append(f"Unsupported or ignored IGES entities: {details}.")
+            warnings.append(f"Неподдерживаемые или пропущенные IGES-сущности: {details}.")
 
         transformed = [
             entry_id
@@ -193,7 +193,7 @@ class _IGESDocument:
         ]
         if transformed:
             warnings.append(
-                "Some entities reference transformation matrices; this MVP does not apply them."
+                "Некоторые сущности используют матрицы трансформации; эта версия пока их не применяет."
             )
 
         return AnalysisResult(
@@ -206,7 +206,7 @@ class _IGESDocument:
             warnings=_dedupe(warnings),
             unsupported_entities=unsupported,
             backend="basic-iges",
-            calculation_mode="2D/3D curve entities",
+            calculation_mode="2D/3D кривые IGES",
         )
 
     def _parse_entity(self, de_id: int) -> Optional[CurveEntity]:
@@ -249,7 +249,7 @@ class _IGESDocument:
                 entity_type=entity_type,
                 length_mm=0.0,
                 supported=False,
-                warnings=[f"Could not parse IGES entity {de_id} type {entity_type}: {exc}."]
+                warnings=[f"Не удалось разобрать IGES-сущность {de_id}, тип {entity_type}: {exc}."],
             )
         self._parsed[de_id] = curve
         return curve
@@ -257,7 +257,7 @@ class _IGESDocument:
     def _parse_line(self, de_id: int, tokens: Sequence[str]) -> CurveEntity:
         values = [_to_float(token) for token in tokens[1:7]]
         if len(values) < 6 or any(value is None for value in values):
-            raise ValueError("line entity has incomplete coordinates")
+            raise ValueError("у линии неполные координаты")
         x1, y1, z1, x2, y2, z2 = [float(value) for value in values]
         start = self._scale_point((x1, y1, z1))
         end = self._scale_point((x2, y2, z2))
@@ -272,7 +272,7 @@ class _IGESDocument:
     def _parse_circular_arc(self, de_id: int, tokens: Sequence[str]) -> CurveEntity:
         values = [_to_float(token) for token in tokens[1:8]]
         if len(values) < 7 or any(value is None for value in values):
-            raise ValueError("circular arc entity has incomplete coordinates")
+            raise ValueError("у круговой дуги неполные координаты")
         zt, cx, cy, sx, sy, ex, ey = [float(value) for value in values]
 
         center = self._scale_point((cx, cy, zt))
@@ -280,7 +280,7 @@ class _IGESDocument:
         end = self._scale_point((ex, ey, zt))
         radius = _distance(center, start)
         if radius == 0:
-            raise ValueError("circular arc radius is zero")
+            raise ValueError("радиус круговой дуги равен нулю")
 
         start_angle = math.atan2(start[1] - center[1], start[0] - center[0])
         end_angle = math.atan2(end[1] - center[1], end[0] - center[0])
@@ -293,7 +293,7 @@ class _IGESDocument:
         warnings: List[str] = []
         end_radius = _distance(center, end)
         if abs(end_radius - radius) > 0.05:
-            warnings.append(f"Arc {de_id} has inconsistent start/end radius.")
+            warnings.append(f"У дуги {de_id} отличается радиус в начале и конце.")
 
         return CurveEntity(
             de_id=de_id,
@@ -334,14 +334,14 @@ class _IGESDocument:
 
     def _parse_copious_data(self, de_id: int, tokens: Sequence[str]) -> CurveEntity:
         if len(tokens) < 4:
-            raise ValueError("copious data entity is incomplete")
+            raise ValueError("сущность copious data неполная")
         tuple_count = _to_int(tokens[2], default=0)
         raw_values = [_to_float(token) for token in tokens[3:]]
         values = [float(value) for value in raw_values if value is not None]
         points: List[Point3] = []
 
         if tuple_count <= 0:
-            raise ValueError("copious data entity has no points")
+            raise ValueError("сущность copious data не содержит точек")
         if len(values) >= 1 + tuple_count * 2 and len(values) < tuple_count * 3:
             zt = values[0]
             coords = values[1 : 1 + tuple_count * 2]
@@ -362,7 +362,7 @@ class _IGESDocument:
                 for index in range(0, len(coords), 2)
             ]
         else:
-            raise ValueError("copious data entity has too few coordinates")
+            raise ValueError("в сущности copious data слишком мало координат")
 
         length = sum(_distance(points[index], points[index + 1]) for index in range(len(points) - 1))
         return CurveEntity(
@@ -371,16 +371,16 @@ class _IGESDocument:
             length_mm=length,
             start=points[0],
             end=points[-1],
-            warnings=[f"Copious data entity {de_id} is treated as a polyline."],
+            warnings=[f"Сущность copious data {de_id} обработана как полилиния."],
         )
 
     def _parse_bspline_curve(self, de_id: int, tokens: Sequence[str]) -> CurveEntity:
         if len(tokens) < 10:
-            raise ValueError("B-spline entity is incomplete")
+            raise ValueError("B-spline сущность неполная")
         k = _to_int(tokens[1], default=-1)
         degree = _to_int(tokens[2], default=-1)
         if k < 1 or degree < 1:
-            raise ValueError("B-spline has invalid degree/control count")
+            raise ValueError("у B-spline неверная степень или количество контрольных точек")
 
         control_count = k + 1
         knot_count = control_count + degree + 1
@@ -398,7 +398,7 @@ class _IGESDocument:
             or len(coord_values) < control_count * 3
             or any(value is None for value in knots + weights + coord_values)
         ):
-            raise ValueError("B-spline arrays are incomplete")
+            raise ValueError("у B-spline неполные массивы данных")
 
         knot_values = [float(value) for value in knots]
         weight_values = [float(value) for value in weights]
@@ -417,7 +417,7 @@ class _IGESDocument:
         if end_param <= start_param:
             start_param, end_param = knot_values[degree], knot_values[control_count]
         if end_param <= start_param:
-            raise ValueError("B-spline parameter range is invalid")
+            raise ValueError("у B-spline неверный диапазон параметров")
 
         sample_count = max(32, min(1200, control_count * 32))
         points = [
@@ -437,7 +437,7 @@ class _IGESDocument:
             length_mm=length,
             start=points[0],
             end=points[-1],
-            warnings=[f"B-spline entity {de_id} length is approximated by sampling."],
+            warnings=[f"Длина B-spline сущности {de_id} посчитана приближенно по точкам."],
         )
 
     def _scale_point(self, point: Point3) -> Point3:

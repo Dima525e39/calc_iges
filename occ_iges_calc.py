@@ -29,74 +29,24 @@ def analyze_iges_file_with_occ(
         return _analyze_profile_tube_shape(path, profile_faces, pierce_tolerance_mm, warnings, occ)
 
     warnings.append(
-        "Tube mode did not find a round tube or a rectangular/square profile tube. "
-        "The IGES may describe the tube as NURBS surfaces, as a rotated profile, or as another section type."
+        "Режим трубы не нашел круглую трубу или квадратный/прямоугольный профиль. "
+        "IGES может описывать трубу NURBS-поверхностями, повернутым профилем или другим типом сечения."
     )
 
-    if planar_faces:
-        selected_face = max(planar_faces, key=lambda item: item["area"])
-        wires = _collect_shapes(selected_face["shape"], occ["TopAbs_WIRE"], occ)
-        wire_lengths = [
-            _linear_length(wire, occ)
-            for wire in wires
-            if _linear_length(wire, occ) > pierce_tolerance_mm
-        ]
-        cut_length_mm = sum(wire_lengths)
-        pierces = len(wire_lengths)
-        curves = [
-            CurveEntity(
-                de_id=index + 1,
-                entity_type=0,
-                length_mm=length,
-                warnings=[],
-            )
-            for index, length in enumerate(wire_lengths)
-        ]
-        warnings.append(
-            "3D mode: calculated contours from the largest planar face. "
-            "For sheet cutting this should be the flat cutting profile; verify once with sample parts."
-        )
-        return AnalysisResult(
-            path=path,
-            unit_name="MM",
-            unit_to_mm=1.0,
-            cut_length_mm=cut_length_mm,
-            pierces=pierces,
-            curves=curves,
-            warnings=warnings,
-            backend="open-cascade",
-            calculation_mode=(
-                f"largest planar face, area {selected_face['area']:.3f} mm2, "
-                f"{len(wire_lengths)} contour(s)"
-            ),
-        )
-
-    edges = _collect_unique_edges(shape, occ)
-    if not edges:
-        raise ValueError("Open Cascade imported the IGES file, but found no faces or edges.")
-
-    edge_lengths = [_linear_length(edge, occ) for edge in edges]
-    cut_length_mm = sum(edge_lengths)
-    pierces = _estimate_edge_components(edges, pierce_tolerance_mm, occ)
     warnings.append(
-        "3D mode: no planar face was found, so the app summed unique model edges. "
-        "This may not match sheet cutting length for curved or solid models."
+        "Расчет не выполнен: программа не смогла надежно выделить наружные поверхности трубы. "
+        "Чтобы не завышать периметр, произвольные ребра 3D-модели не суммируются."
     )
-    curves = [
-        CurveEntity(de_id=index + 1, entity_type=0, length_mm=length)
-        for index, length in enumerate(edge_lengths)
-        if length > 0
-    ]
     return AnalysisResult(
         path=path,
         unit_name="MM",
         unit_to_mm=1.0,
-        cut_length_mm=cut_length_mm,
-        pierces=pierces,
-        curves=curves,
+        cut_length_mm=0.0,
+        pierces=0,
+        curves=[],
         warnings=warnings,
         backend="open-cascade",
-        calculation_mode=f"unique 3D edges, {len(edges)} edge(s)",
+        calculation_mode="труба не распознана, периметр резки не посчитан",
     )
 
 
@@ -118,7 +68,7 @@ def _load_ocp() -> Dict[str, object]:
         from OCP.TopoDS import TopoDS
     except ImportError as exc:
         raise ImportError(
-            "Open Cascade backend is not installed. Install cadquery-ocp for 3D IGES support."
+            "Open Cascade backend не установлен. Для поддержки 3D IGES установите cadquery-ocp."
         ) from exc
 
     return {
@@ -154,11 +104,11 @@ def _read_iges_shape(path: Path, occ: Dict[str, object]):
     reader = occ["IGESControl_Reader"]()
     status = reader.ReadFile(str(path))
     if status != occ["IFSelect_RetDone"]:
-        raise ValueError("Open Cascade could not read the IGES file.")
+        raise ValueError("Open Cascade не смог прочитать IGES-файл.")
     reader.TransferRoots()
     shape = reader.OneShape()
     if shape.IsNull():
-        raise ValueError("Open Cascade imported an empty shape.")
+        raise ValueError("Open Cascade импортировал пустую модель.")
     return shape
 
 
@@ -212,39 +162,28 @@ def _analyze_tube_shape(
     ]
 
     candidate_edges = _collect_outer_tube_boundary_edges(outer_faces, occ)
-    edge_lengths_with_shapes = [
-        (edge, _linear_length(edge, occ))
-        for edge in candidate_edges
-    ]
-    edge_lengths_with_shapes = [
-        (edge, length)
-        for edge, length in edge_lengths_with_shapes
-        if length > pierce_tolerance_mm
-    ]
-    edges = [edge for edge, _length in edge_lengths_with_shapes]
-    edge_lengths = [length for _edge, length in edge_lengths_with_shapes]
-    cut_length_mm = sum(edge_lengths)
-    pierces = _estimate_edge_components(edges, pierce_tolerance_mm, occ)
+    contour_lengths, edge_count = _cut_contour_lengths(candidate_edges, pierce_tolerance_mm, occ)
+    cut_length_mm = sum(contour_lengths)
+    pierces = len(contour_lengths)
 
     warnings.append(
-        "Tube mode: calculated cut contours on the outer cylindrical surface. "
-        "Hole cylinders and inner tube walls are ignored by radius."
+        "Режим круглой трубы: контуры реза посчитаны по наружной цилиндрической поверхности. "
+        "Цилиндры отверстий и внутренняя стенка трубы игнорируются по радиусу."
     )
     if len(cylindrical_faces) != len(outer_faces):
         warnings.append(
-            f"Detected {len(cylindrical_faces)} cylindrical face(s); "
-            f"used {len(outer_faces)} outer face(s) with radius about {max_radius:.3f} mm."
+            f"Найдено цилиндрических граней: {len(cylindrical_faces)}; "
+            f"использовано наружных граней: {len(outer_faces)} с радиусом около {max_radius:.3f} мм."
         )
-    if not edges:
+    if not contour_lengths:
         warnings.append(
-            "No boundary edges were found on the outer tube surface. "
-            "The IGES may contain only analytic surfaces without trimmed cut contours."
+            "На наружной поверхности трубы не найдены граничные ребра. "
+            "IGES может содержать аналитические поверхности без обрезанных контуров реза."
         )
 
     curves = [
         CurveEntity(de_id=index + 1, entity_type=0, length_mm=length)
-        for index, length in enumerate(edge_lengths)
-        if length > 0
+        for index, length in enumerate(contour_lengths)
     ]
     return AnalysisResult(
         path=path,
@@ -256,8 +195,8 @@ def _analyze_tube_shape(
         warnings=warnings,
         backend="open-cascade",
         calculation_mode=(
-            f"tube outer cylinder, radius {max_radius:.3f} mm, "
-            f"{len(edge_lengths)} boundary edge(s)"
+            f"наружный цилиндр трубы, радиус {max_radius:.3f} мм, "
+            f"контуров реза: {len(contour_lengths)}, ребер контура: {edge_count}"
         ),
     )
 
@@ -319,38 +258,27 @@ def _analyze_profile_tube_shape(
     occ: Dict[str, object],
 ) -> AnalysisResult:
     candidate_edges = _collect_profile_tube_cut_edges(outer_faces, occ)
-    edge_lengths_with_shapes = [
-        (edge, _linear_length(edge, occ))
-        for edge in candidate_edges
-    ]
-    edge_lengths_with_shapes = [
-        (edge, length)
-        for edge, length in edge_lengths_with_shapes
-        if length > pierce_tolerance_mm
-    ]
-    edges = [edge for edge, _length in edge_lengths_with_shapes]
-    edge_lengths = [length for _edge, length in edge_lengths_with_shapes]
-    cut_length_mm = sum(edge_lengths)
-    pierces = _estimate_edge_components(edges, pierce_tolerance_mm, occ)
+    contour_lengths, edge_count = _cut_contour_lengths(candidate_edges, pierce_tolerance_mm, occ)
+    cut_length_mm = sum(contour_lengths)
+    pierces = len(contour_lengths)
 
     warnings.append(
-        "Profile tube mode: calculated cut contours on the outer planar side faces. "
-        "Longitudinal profile corners are excluded."
+        "Режим профильной трубы: контуры реза посчитаны по наружным плоским боковым граням. "
+        "Продольные углы профиля исключены."
     )
     warnings.append(
-        f"Detected {len(outer_faces)} outer profile face(s); "
-        f"used {len(edge_lengths)} cut boundary edge(s)."
+        f"Найдено наружных граней профиля: {len(outer_faces)}; "
+        f"контуров реза: {len(contour_lengths)}; ребер контура: {edge_count}."
     )
-    if not edges:
+    if not contour_lengths:
         warnings.append(
-            "No cut boundary edges were found on the outer profile faces. "
-            "The IGES may contain untrimmed surfaces or a profile orientation this MVP cannot classify."
+            "На наружных гранях профиля не найдены граничные ребра реза. "
+            "IGES может содержать необрезанные поверхности или ориентацию профиля, которую эта версия пока не распознает."
         )
 
     curves = [
         CurveEntity(de_id=index + 1, entity_type=0, length_mm=length)
-        for index, length in enumerate(edge_lengths)
-        if length > 0
+        for index, length in enumerate(contour_lengths)
     ]
     return AnalysisResult(
         path=path,
@@ -362,8 +290,8 @@ def _analyze_profile_tube_shape(
         warnings=warnings,
         backend="open-cascade",
         calculation_mode=(
-            f"profile tube outer faces, {len(outer_faces)} face(s), "
-            f"{len(edge_lengths)} boundary edge(s)"
+            f"наружные грани профильной трубы, граней: {len(outer_faces)}, "
+            f"контуров реза: {len(contour_lengths)}, ребер контура: {edge_count}"
         ),
     )
 
@@ -495,6 +423,57 @@ def _linear_length(shape, occ: Dict[str, object]) -> float:
     props = occ["GProp_GProps"]()
     occ["BRepGProp"].LinearProperties_s(shape, props)
     return float(props.Mass())
+
+
+def _cut_contour_lengths(
+    edges: Sequence[object],
+    tolerance_mm: float,
+    occ: Dict[str, object],
+) -> Tuple[List[float], int]:
+    items = [
+        (length, _edge_endpoints(edge, occ))
+        for edge in edges
+        for length in [_linear_length(edge, occ)]
+        if length > tolerance_mm
+    ]
+    return _component_lengths_from_items(items, tolerance_mm), len(items)
+
+
+def _component_lengths_from_items(
+    items: Sequence[Tuple[float, List[Point3]]],
+    tolerance_mm: float,
+) -> List[float]:
+    if not items:
+        return []
+
+    parent = list(range(len(items)))
+    endpoint_to_items: Dict[Tuple[int, int, int], List[int]] = {}
+
+    def find(item: int) -> int:
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    def union(left: int, right: int) -> None:
+        root_left = find(left)
+        root_right = find(right)
+        if root_left != root_right:
+            parent[root_right] = root_left
+
+    for index, (_length, endpoints) in enumerate(items):
+        for point in endpoints:
+            key = _point_key(point, tolerance_mm)
+            linked_items = endpoint_to_items.setdefault(key, [])
+            for linked_item in linked_items:
+                union(index, linked_item)
+            linked_items.append(index)
+
+    contour_lengths: Dict[int, float] = {}
+    for index, (length, _endpoints) in enumerate(items):
+        root = find(index)
+        contour_lengths[root] = contour_lengths.get(root, 0.0) + length
+    return list(contour_lengths.values())
 
 
 def _estimate_edge_components(

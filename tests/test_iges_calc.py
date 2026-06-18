@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from iges_calc import analyze_iges_file
-from occ_iges_calc import _select_profile_tube_outer_faces_by_bounds
+from occ_iges_calc import _component_lengths_from_items, _select_profile_tube_outer_faces_by_bounds
 
 
 def section_line(payload, section, seq):
@@ -127,8 +127,22 @@ def test_profile_tube_outer_face_selection():
     }
 
 
+def test_cut_edges_are_grouped_into_cut_contours():
+    items = [
+        (10.0, [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)]),
+        (10.0, [(10.0, 0.0, 0.0), (10.0, 10.0, 0.0)]),
+        (10.0, [(10.0, 10.0, 0.0), (0.0, 10.0, 0.0)]),
+        (10.0, [(0.0, 10.0, 0.0), (0.0, 0.0, 0.0)]),
+        (5.0, [(100.0, 0.0, 0.0), (105.0, 0.0, 0.0)]),
+    ]
+
+    contour_lengths = sorted(_component_lengths_from_items(items, 0.001))
+    assert contour_lengths == [5.0, 40.0]
+
+
 if __name__ == "__main__":
     test_square_composite_curve()
     test_full_circle_arc()
     test_profile_tube_outer_face_selection()
+    test_cut_edges_are_grouped_into_cut_contours()
     print("OK")
