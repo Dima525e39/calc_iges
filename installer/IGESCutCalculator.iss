@@ -1,5 +1,5 @@
 #define MyAppName "IGES Cut Calculator"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "Your Company"
 #define MyAppExeName "IGESCutCalculator.exe"
 

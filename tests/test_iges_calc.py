@@ -7,7 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from iges_calc import analyze_iges_file
-from occ_iges_calc import _component_lengths_from_items, _select_profile_tube_outer_faces_by_bounds
+from occ_iges_calc import (
+    _component_lengths_from_items,
+    _is_longitudinal_edge_data,
+    _select_profile_tube_outer_faces_by_bounds,
+)
 
 
 def section_line(payload, section, seq):
@@ -140,9 +144,34 @@ def test_cut_edges_are_grouped_into_cut_contours():
     assert contour_lengths == [5.0, 40.0]
 
 
+def test_axis_fallback_rejects_only_longitudinal_tube_edges():
+    assert _is_longitudinal_edge_data(
+        1000.0,
+        [(0.0, 0.0, 0.0), (0.0, 0.0, 1000.0)],
+        axis_index=2,
+        tube_length=1000.0,
+        cross_extent=50.0,
+    )
+    assert not _is_longitudinal_edge_data(
+        50.0,
+        [(-25.0, 0.0, 0.0), (25.0, 0.0, 0.0)],
+        axis_index=2,
+        tube_length=1000.0,
+        cross_extent=50.0,
+    )
+    assert not _is_longitudinal_edge_data(
+        100.0,
+        [(0.0, 0.0, 100.0), (0.0, 0.0, 200.0)],
+        axis_index=2,
+        tube_length=1000.0,
+        cross_extent=50.0,
+    )
+
+
 if __name__ == "__main__":
     test_square_composite_curve()
     test_full_circle_arc()
     test_profile_tube_outer_face_selection()
     test_cut_edges_are_grouped_into_cut_contours()
+    test_axis_fallback_rejects_only_longitudinal_tube_edges()
     print("OK")

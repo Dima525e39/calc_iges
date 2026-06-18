@@ -33,21 +33,7 @@ def analyze_iges_file_with_occ(
         "IGES может описывать трубу NURBS-поверхностями, повернутым профилем или другим типом сечения."
     )
 
-    warnings.append(
-        "Расчет не выполнен: программа не смогла надежно выделить наружные поверхности трубы. "
-        "Чтобы не завышать периметр, произвольные ребра 3D-модели не суммируются."
-    )
-    return AnalysisResult(
-        path=path,
-        unit_name="MM",
-        unit_to_mm=1.0,
-        cut_length_mm=0.0,
-        pierces=0,
-        curves=[],
-        warnings=warnings,
-        backend="open-cascade",
-        calculation_mode="труба не распознана, периметр резки не посчитан",
-    )
+    return _analyze_axis_filtered_tube_shape(path, shape, pierce_tolerance_mm, warnings, occ)
 
 
 def _load_ocp() -> Dict[str, object]:
@@ -296,6 +282,69 @@ def _analyze_profile_tube_shape(
     )
 
 
+def _analyze_axis_filtered_tube_shape(
+    path: Path,
+    shape,
+    pierce_tolerance_mm: float,
+    warnings: List[str],
+    occ: Dict[str, object],
+) -> AnalysisResult:
+    bounds = _shape_bounds(shape, occ)
+    extents = (
+        bounds[3] - bounds[0],
+        bounds[4] - bounds[1],
+        bounds[5] - bounds[2],
+    )
+    axis_index = max(range(3), key=lambda index: extents[index])
+    tube_length = extents[axis_index]
+    cross_extent = max(extents[index] for index in range(3) if index != axis_index)
+
+    candidate_edges = []
+    skipped_longitudinal = 0
+    for edge in _collect_unique_edges(shape, occ):
+        if _is_degenerate_edge(edge, occ):
+            continue
+        length = _linear_length(edge, occ)
+        if length <= pierce_tolerance_mm:
+            continue
+        endpoints = _edge_endpoints(edge, occ)
+        if _is_longitudinal_edge_data(length, endpoints, axis_index, tube_length, cross_extent):
+            skipped_longitudinal += 1
+            continue
+        candidate_edges.append(edge)
+
+    contour_lengths, edge_count = _cut_contour_lengths(candidate_edges, pierce_tolerance_mm, occ)
+    warnings.append(
+        "Использован запасной режим: длинная ось трубы определена по габаритам, "
+        "продольные ребра трубы исключены, оставшиеся ребра сгруппированы в контуры реза."
+    )
+    if not contour_lengths:
+        warnings.append(
+            "Контуры реза не найдены даже в запасном режиме. Нужен пример IGES-файла, "
+            "чтобы настроить распознавание под экспорт вашего CAD/CAM."
+        )
+
+    curves = [
+        CurveEntity(de_id=index + 1, entity_type=0, length_mm=length)
+        for index, length in enumerate(contour_lengths)
+    ]
+    return AnalysisResult(
+        path=path,
+        unit_name="MM",
+        unit_to_mm=1.0,
+        cut_length_mm=sum(contour_lengths),
+        pierces=len(contour_lengths),
+        curves=curves,
+        warnings=warnings,
+        backend="open-cascade",
+        calculation_mode=(
+            f"запасной режим по оси {('X', 'Y', 'Z')[axis_index]}, "
+            f"контуров реза: {len(contour_lengths)}, ребер контура: {edge_count}, "
+            f"продольных ребер исключено: {skipped_longitudinal}"
+        ),
+    )
+
+
 def _collect_profile_tube_cut_edges(
     outer_faces: Sequence[Dict[str, object]],
     occ: Dict[str, object],
@@ -474,6 +523,29 @@ def _component_lengths_from_items(
         root = find(index)
         contour_lengths[root] = contour_lengths.get(root, 0.0) + length
     return list(contour_lengths.values())
+
+
+def _is_longitudinal_edge_data(
+    length: float,
+    endpoints: Sequence[Point3],
+    axis_index: int,
+    tube_length: float,
+    cross_extent: float,
+) -> bool:
+    if length <= 0 or len(endpoints) < 2:
+        return False
+
+    max_axis_delta = 0.0
+    for left_index in range(len(endpoints)):
+        for right_index in range(left_index + 1, len(endpoints)):
+            max_axis_delta = max(
+                max_axis_delta,
+                abs(endpoints[left_index][axis_index] - endpoints[right_index][axis_index]),
+            )
+
+    axis_ratio = max_axis_delta / max(length, 1e-9)
+    min_longitudinal_length = max(cross_extent * 3.0, tube_length * 0.35)
+    return axis_ratio >= 0.95 and length >= min_longitudinal_length
 
 
 def _estimate_edge_components(
